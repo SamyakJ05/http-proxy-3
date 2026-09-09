@@ -355,11 +355,27 @@ async function stream2(
     // ProxyRes is used in the outgoing passes
     // But since only certain properties are used, we can fake it here
     // to avoid having to refactor everything.
+    //
+    // A fetch Headers object can hold multiple values for the same
+    // header name (most notably several Set-Cookie headers). Building
+    // `headers` with Object.fromEntries(response.headers.entries())
+    // collapses those down to the last value, since a plain object can
+    // only hold one value per key. Collect any header with more than one
+    // value into an array instead, matching the string | string[] type
+    // that the outgoing passes (and res.setHeader) already support.
+    const headers: { [key: string]: string | string[] } = {};
+    for (const key of response.headers.keys()) {
+      const values =
+        key === "set-cookie"
+          ? response.headers.getSetCookie()
+          : [response.headers.get(key) as string];
+      headers[key] = values.length > 1 ? values : values[0];
+    }
     const fakeProxyRes = {
       statusCode: response.status,
       statusMessage: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      rawHeaders: Object.entries(response.headers).flatMap(([key, value]) => {
+      headers,
+      rawHeaders: Object.entries(headers).flatMap(([key, value]) => {
         if (Array.isArray(value)) {
           return value.flatMap((v) => (v != null ? [key, v] : []));
         }
