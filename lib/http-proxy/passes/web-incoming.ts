@@ -204,6 +204,30 @@ export function stream(
   });
 }
 
+// Headers.prototype.getSetCookie() is the spec-blessed way to recover
+// every Set-Cookie value, but the `fetch` proxy option explicitly accepts
+// custom fetch implementations (see the customFetch test), and some -
+// notably node-fetch 2.x, which this package itself still depends on for
+// testing - predate getSetCookie(). Those implementations instead expose
+// a non-standard .raw() method that preserves original casing and keeps
+// repeated headers as an array, so fall back to that (looked up
+// case-insensitively) rather than throwing on `Headers` objects that
+// don't implement the current spec.
+function getAllSetCookieValues(headers: globalThis.Headers): string[] {
+  if (typeof headers.getSetCookie === "function") {
+    return headers.getSetCookie();
+  }
+  const raw = (headers as unknown as { raw?: () => Record<string, string[]> }).raw?.();
+  if (raw) {
+    const key = Object.keys(raw).find((k) => k.toLowerCase() === "set-cookie");
+    if (key) {
+      return raw[key];
+    }
+  }
+  const value = headers.get("set-cookie");
+  return value != null ? [value] : [];
+}
+
 async function stream2(
   req: Request,
   res: Response,
@@ -367,7 +391,7 @@ async function stream2(
     for (const key of response.headers.keys()) {
       const values =
         key === "set-cookie"
-          ? response.headers.getSetCookie()
+          ? getAllSetCookieValues(response.headers)
           : [response.headers.get(key) as string];
       headers[key] = values.length > 1 ? values : values[0];
     }
